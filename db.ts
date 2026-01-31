@@ -12,6 +12,12 @@ interface ExtendedAppState extends AppState {
   };
 }
 
+const ensureValidDate = (dateInput: any): string => {
+  if (!dateInput) return new Date().toISOString();
+  const d = new Date(dateInput);
+  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+};
+
 const INITIAL_DATA: ExtendedAppState = {
   users: [
     { id: 'u1', name: 'Nurse Sarah', role: Role.NURSE, phone: '555-0101' },
@@ -25,16 +31,16 @@ const INITIAL_DATA: ExtendedAppState = {
     { id: 'p3', name: 'Evelyn Reed', dob: '1945-02-15', phone: '555-0106', address: '78 Pine St', riskLevel: RiskLevel.LOW, notes: 'Bilateral cataracts.' },
   ],
   appointments: [
-    { id: 'a1', patientId: 'p1', patientName: 'Margaret Smith', datetime: '2025-05-20T09:00:00', location: 'City Cardiology', status: ApptStatus.SCHEDULED, provider: 'Dr. Heart' },
-    { id: 'a2', patientId: 'p2', patientName: 'Arthur Penhaligon', datetime: '2025-05-18T14:30:00', location: 'Clearwater General', status: ApptStatus.CONFIRMED, provider: 'Dr. Diabetes' },
-    { id: 'a3', patientId: 'p1', patientName: 'Margaret Smith', datetime: '2025-05-15T10:00:00', location: 'Physical Therapy', status: ApptStatus.MISSED, provider: 'PT Jane' },
+    { id: 'a1', patientId: 'p1', patientName: 'Margaret Smith', datetime: ensureValidDate('2025-05-20T09:00:00Z'), location: 'Clearwater Hospital', status: ApptStatus.SCHEDULED, provider: 'Dr. Heart' },
+    { id: 'a2', patientId: 'p2', patientName: 'Arthur Penhaligon', datetime: ensureValidDate('2025-05-18T14:30:00Z'), location: 'Clearwater Hospital', status: ApptStatus.CONFIRMED, provider: 'Dr. Diabetes' },
+    { id: 'a3', patientId: 'p1', patientName: 'Margaret Smith', datetime: ensureValidDate('2025-05-15T10:00:00Z'), location: 'Clearwater Hospital', status: ApptStatus.MISSED, provider: 'PT Jane' },
   ],
   transportRequests: [
-    { id: 't1', patientId: 'p1', appointmentId: 'a1', pickupLocation: '123 Ridge Rd', destination: 'City Cardiology', scheduledTime: '2025-05-20T08:15:00', status: TransportStatus.REQUESTED },
-    { id: 't2', patientId: 'p2', appointmentId: 'a2', pickupLocation: '45 Oak Ave', destination: 'Clearwater General', scheduledTime: '2025-05-18T13:45:00', status: TransportStatus.ASSIGNED, driverId: 'u3', driverName: 'Bill Driver' },
+    { id: 't1', patientId: 'p1', appointmentId: 'a1', pickupLocation: '123 Ridge Rd', destination: 'Clearwater Hospital', scheduledTime: ensureValidDate('2025-05-20T08:15:00Z'), status: TransportStatus.REQUESTED },
+    { id: 't2', patientId: 'p2', appointmentId: 'a2', pickupLocation: '45 Oak Ave', destination: 'Clearwater Hospital', scheduledTime: ensureValidDate('2025-05-18T13:45:00Z'), status: TransportStatus.ASSIGNED, driverId: 'u3', driverName: 'Bill Driver' },
   ],
   referrals: [
-    { id: 'r1', patientId: 'p1', specialty: 'Cardiology', provider: 'City Cardiology', urgency: RiskLevel.HIGH, status: ReferralStatus.SENT, requestedDate: '2025-05-10' },
+    { id: 'r1', patientId: 'p1', specialty: 'Cardiology', provider: 'Clearwater Hospital', urgency: RiskLevel.HIGH, status: ReferralStatus.SENT, requestedDate: '2025-05-10' },
   ],
   tasks: [
     { id: 'k1', patientId: 'p1', title: 'Follow-up on missed PT appointment', priority: TaskPriority.URGENT, status: 'PENDING', dueDate: '2025-05-16' },
@@ -55,7 +61,7 @@ class Store {
   private listeners: (() => void)[] = [];
 
   constructor() {
-    const saved = localStorage.getItem('clearwater_state_v5');
+    const saved = localStorage.getItem('clearwater_state_v8');
     if (saved) {
       try {
         this.data = JSON.parse(saved);
@@ -69,7 +75,7 @@ class Store {
   
   setState(newData: Partial<ExtendedAppState>) {
     this.data = { ...this.data, ...newData };
-    localStorage.setItem('clearwater_state_v5', JSON.stringify(this.data));
+    localStorage.setItem('clearwater_state_v8', JSON.stringify(this.data));
     this.notify();
   }
 
@@ -109,54 +115,75 @@ class Store {
     this.setState({ notifications });
   }
 
-  addAppointment(patientName: string, datetime: string, location: string = 'Clinic', provider: string = 'Physician') {
+  addAppointment(patientName: string, datetime: string, location: string = 'Clearwater Hospital', provider: string = 'Staff Physician') {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return null;
 
-    // Filter out previous scheduled/confirmed appointments for same patient + location
-    // This removes them from the UI because views filter for SCHEDULED/CONFIRMED status
+    const fixedLocation = 'Clearwater Hospital';
     const filteredAppts = this.data.appointments.filter(a => 
-      !(a.patientId === patient.id && 
-        a.location.toLowerCase().includes(location.toLowerCase()) && 
-        (a.status === ApptStatus.SCHEDULED || a.status === ApptStatus.CONFIRMED))
+      !(a.patientId === patient.id && a.status === ApptStatus.SCHEDULED)
     );
 
     const newAppt: Appointment = {
       id: `a-${Date.now()}`,
       patientId: patient.id,
       patientName: patient.name,
-      datetime: new Date(datetime).toISOString(),
-      location,
+      datetime: ensureValidDate(datetime),
+      location: fixedLocation,
       status: ApptStatus.SCHEDULED,
       provider
     };
     
     this.setState({ appointments: [newAppt, ...filteredAppts] });
-    this.addNotification(`Rescheduled: ${location} updated for ${patient.name}.`);
+    this.addNotification(`Scheduled: Clearwater Hospital visit for ${patient.name}.`);
     return newAppt;
   }
 
-  removeAppointment(patientName: string, location?: string) {
+  removeAppointment(patientName: string) {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
-    const appts = this.data.appointments.filter(a => 
-      !(a.patientId === patient.id && (!location || a.location.toLowerCase().includes(location.toLowerCase())))
-    );
+    const appts = this.data.appointments.filter(a => a.patientId !== patient.id);
     this.setState({ appointments: appts });
-    this.addNotification(`Removed clinical visit for ${patient.name}.`);
+    this.addNotification(`Cancelled all visits for ${patient.name}.`);
     return true;
   }
 
-  updateAppointmentTime(patientName: string, newDatetime: string, location?: string) {
+  cancelAppointmentById(id: string) {
+    this.setState({ 
+      appointments: this.data.appointments.map(a => a.id === id ? { ...a, status: ApptStatus.CANCELLED } : a) 
+    });
+  }
+
+  completeAppointment(id: string) {
+    this.setState({ 
+      appointments: this.data.appointments.map(a => a.id === id ? { ...a, status: ApptStatus.COMPLETED } : a) 
+    });
+    this.addNotification("Clinical encounter completed and recorded.");
+  }
+
+  updateAppointmentTime(patientName: string, newDatetime: string) {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
     const appts = this.data.appointments.map(a => 
-      (a.patientId === patient.id && (!location || a.location.toLowerCase().includes(location.toLowerCase())))
-      ? { ...a, datetime: new Date(newDatetime).toISOString() }
+      (a.patientId === patient.id && a.status === ApptStatus.SCHEDULED)
+      ? { ...a, datetime: ensureValidDate(newDatetime) }
       : a
     );
     this.setState({ appointments: appts });
     return true;
+  }
+
+  rescheduleByHours(apptId: string, hours: number) {
+    this.setState({
+      appointments: this.data.appointments.map(a => {
+        if (a.id === apptId) {
+          const d = new Date(a.datetime);
+          d.setHours(d.getHours() + hours);
+          return { ...a, datetime: d.toISOString(), status: ApptStatus.SCHEDULED };
+        }
+        return a;
+      })
+    });
   }
 
   manageTask(action: 'CREATE' | 'RESOLVE', patientName: string, title?: string, priority: TaskPriority = TaskPriority.MEDIUM) {
@@ -183,15 +210,20 @@ class Store {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
     if (action === 'REQUEST') {
+      // Check for existing uncompleted ride to avoid duplicates
+      const existing = this.data.transportRequests.find(r => r.patientId === patient.id && r.status === TransportStatus.REQUESTED);
+      if (existing) return true;
+
       const newRide: TransportRequest = {
         id: `t-${Date.now()}`,
         patientId: patient.id,
         pickupLocation: patient.address,
-        destination: 'Clinic',
+        destination: 'Clearwater Hospital',
         scheduledTime: new Date().toISOString(),
         status: TransportStatus.REQUESTED
       };
       this.setState({ transportRequests: [newRide, ...this.data.transportRequests] });
+      this.addNotification(`NEW PICKUP REQUEST: ${patient.name} needs a ride to the hospital.`);
     } else if (action === 'ASSIGN' && driverName) {
       const driver = this.data.users.find(u => u.name.toLowerCase().includes(driverName.toLowerCase()));
       const ride = this.data.transportRequests.find(r => r.patientId === patient.id && r.status === TransportStatus.REQUESTED);
@@ -199,26 +231,37 @@ class Store {
         this.setState({ transportRequests: this.data.transportRequests.map(r => r.id === ride.id ? { ...r, driverId: driver.id, driverName: driver.name, status: TransportStatus.ASSIGNED } : r) });
       }
     } else {
-      this.setState({ transportRequests: this.data.transportRequests.filter(r => r.patientId !== patient.id) });
+      this.setState({ transportRequests: this.data.transportRequests.filter(r => r.patientId !== patient.id || r.status === TransportStatus.COMPLETED) });
     }
     return true;
   }
 
-  requestRide(patientId: string, appointmentId: string) {
+  claimRide(rideId: string, driverId: string, driverName: string) {
+    this.setState({
+      transportRequests: this.data.transportRequests.map(r => 
+        r.id === rideId ? { ...r, driverId, driverName, status: TransportStatus.ASSIGNED } : r
+      )
+    });
+    this.addNotification(`Ride ${rideId} claimed by ${driverName}.`);
+  }
+
+  requestRide(patientId: string, appointmentId?: string) {
     const patient = this.data.patients.find(p => p.id === patientId);
-    const appt = this.data.appointments.find(a => a.id === appointmentId);
-    if (!patient || !appt) return false;
+    if (!patient) return false;
+    
+    const appt = appointmentId ? this.data.appointments.find(a => a.id === appointmentId) : null;
     
     const newRide: TransportRequest = {
       id: `t-${Date.now()}`,
       patientId: patient.id,
-      appointmentId: appt.id,
+      appointmentId: appt?.id,
       pickupLocation: patient.address,
-      destination: appt.location,
-      scheduledTime: new Date(new Date(appt.datetime).getTime() - 45 * 60000).toISOString(),
+      destination: appt?.location || 'Clearwater Hospital',
+      scheduledTime: appt ? ensureValidDate(new Date(new Date(appt.datetime).getTime() - 45 * 60000)) : new Date().toISOString(),
       status: TransportStatus.REQUESTED
     };
     this.setState({ transportRequests: [newRide, ...this.data.transportRequests] });
+    this.addNotification(`Pickup requested for ${patient.name}.`);
     return true;
   }
 
@@ -228,13 +271,12 @@ class Store {
     });
   }
 
-  // Implementation of rescheduleOneWeek to fix error in views/NurseView.tsx on line 82
   rescheduleOneWeek(apptId: string) {
     const appts = this.data.appointments.map(a => {
       if (a.id === apptId) {
         const nextWeek = new Date(a.datetime);
         nextWeek.setDate(nextWeek.getDate() + 7);
-        return { ...a, datetime: nextWeek.toISOString(), status: ApptStatus.SCHEDULED };
+        return { ...a, datetime: ensureValidDate(nextWeek), status: ApptStatus.SCHEDULED };
       }
       return a;
     });

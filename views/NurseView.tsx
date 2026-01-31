@@ -1,19 +1,32 @@
 
 import React, { useState } from 'react';
 import { store } from '../db';
-import { ApptStatus, TaskPriority, User } from '../types';
+import { ApptStatus, TaskPriority, User, AppState } from '../types';
 import { COLORS } from '../constants';
 
 interface NurseViewProps {
   user: User;
+  state: AppState;
 }
 
-const NurseView: React.FC<NurseViewProps> = ({ user }) => {
-  const state = store.getState();
+const formatDate = (d: any) => {
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "TBD";
+  return date.toLocaleDateString();
+};
+
+const formatTime = (d: any) => {
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "TBD";
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+const NurseView: React.FC<NurseViewProps> = ({ user, state }) => {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'REFERRALS' | 'PATIENTS'>('OVERVIEW');
 
   const pendingTasks = state.tasks.filter(t => t.status === 'PENDING');
   const missedAppts = state.appointments.filter(a => a.status === ApptStatus.MISSED);
+  const scheduledAppts = state.appointments.filter(a => a.status === ApptStatus.SCHEDULED || a.status === ApptStatus.CONFIRMED);
 
   return (
     <div className="p-8">
@@ -37,96 +50,135 @@ const NurseView: React.FC<NurseViewProps> = ({ user }) => {
 
       {activeTab === 'OVERVIEW' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Column 1: Priority Tasks */}
-          <div className="lg:col-span-4 medical-card flex flex-col h-[750px] overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Urgent Care Tasks</span>
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{pendingTasks.length}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-              {pendingTasks.map(task => (
-                <div key={task.id} className="p-4 border border-slate-100 hover:bg-slate-50 transition-colors rounded">
-                  <div className="flex justify-between items-start mb-1">
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-tight">{task.title}</h3>
-                    <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border ${COLORS.risk[task.priority === TaskPriority.URGENT ? 'HIGH' : 'LOW']}`}>
-                      {task.priority}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-50">
-                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Due: {task.dueDate}</span>
-                    <button 
-                      onClick={() => store.resolveTask(task.id)}
-                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline uppercase tracking-widest"
-                    >
-                      Resolve
-                    </button>
-                  </div>
+          {/* Main Schedule Column */}
+          <div className="lg:col-span-8 space-y-8">
+            <div className="medical-card flex flex-col min-h-[600px] overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                <div>
+                  <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Live Clinical Schedule</h2>
+                  <p className="text-[10px] text-slate-400 font-medium">Clearwater Hospital Admissions</p>
                 </div>
-              ))}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-slate-500">PENDING:</span>
+                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{scheduledAppts.length}</span>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <table className="w-full data-table">
+                  <thead>
+                    <tr>
+                      <th>Patient</th>
+                      <th>Scheduled Time</th>
+                      <th>Provider</th>
+                      <th>Status</th>
+                      <th className="text-right">Operational Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scheduledAppts.map(appt => (
+                      <tr key={appt.id} className="group hover:bg-slate-50">
+                        <td>
+                          <p className="font-bold text-slate-900 text-sm">{appt.patientName}</p>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold">Chart #CR-{appt.patientId}</p>
+                        </td>
+                        <td>
+                          <p className="text-xs font-semibold text-slate-700">{formatDate(appt.datetime)}</p>
+                          <p className="text-[10px] text-blue-600 font-bold">{formatTime(appt.datetime)}</p>
+                        </td>
+                        <td className="text-xs text-slate-500 font-medium">{appt.provider}</td>
+                        <td>
+                          <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${appt.status === ApptStatus.CONFIRMED ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                            {appt.status}
+                          </span>
+                        </td>
+                        <td className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <button 
+                              onClick={() => store.completeAppointment(appt.id)}
+                              className="px-3 py-1 bg-emerald-600 text-white text-[9px] font-bold uppercase rounded shadow-sm hover:bg-emerald-700"
+                            >
+                              Resolve
+                            </button>
+                            <button 
+                              onClick={() => store.rescheduleByHours(appt.id, 24)}
+                              className="px-3 py-1 bg-white border border-slate-200 text-slate-600 text-[9px] font-bold uppercase rounded hover:bg-slate-50"
+                            >
+                              Shift 24h
+                            </button>
+                            <button 
+                              onClick={() => store.cancelAppointmentById(appt.id)}
+                              className="px-3 py-1 bg-white border border-rose-100 text-rose-600 text-[9px] font-bold uppercase rounded hover:bg-rose-50"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {scheduledAppts.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="py-20 text-center opacity-40 italic text-sm">No active clinical visits found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
 
-          {/* Column 2: Access Alerts */}
-          <div className="lg:col-span-4 medical-card flex flex-col h-[750px] overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Clinical Access Alerts</span>
+          {/* Sidebar Column */}
+          <div className="lg:col-span-4 space-y-8">
+            <div className="medical-card flex flex-col h-[300px] overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Care Tasks</span>
+                <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{pendingTasks.length}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                {pendingTasks.map(task => (
+                  <div key={task.id} className="p-3 border border-slate-100 hover:bg-slate-50 transition-colors rounded">
+                    <div className="flex justify-between items-start mb-1">
+                      <h3 className="text-[11px] font-bold text-slate-900 uppercase tracking-tight">{task.title}</h3>
+                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border ${COLORS.risk[task.priority === TaskPriority.URGENT ? 'HIGH' : 'LOW']}`}>
+                        {task.priority}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-[9px] text-slate-400 font-bold uppercase">Due: {task.dueDate}</span>
+                      <button 
+                        onClick={() => store.resolveTask(task.id)}
+                        className="text-[9px] font-bold text-blue-600 hover:text-blue-800 underline uppercase"
+                      >
+                        Resolve
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-              {missedAppts.map(appt => (
-                <div key={appt.id} className="p-4 border-l-4 border-l-rose-600 border border-slate-200 bg-white">
-                  <p className="text-[9px] font-black text-rose-600 uppercase tracking-widest mb-1">Missed Appointment Trigger</p>
-                  <h3 className="font-bold text-slate-900 text-sm">{appt.patientName}</h3>
-                  <p className="text-[11px] text-slate-500 mt-1 uppercase font-medium">{appt.location}</p>
-                  <div className="grid grid-cols-2 gap-2 mt-4">
+
+            <div className="medical-card flex flex-col h-[268px] overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-200 bg-rose-50/50">
+                <span className="text-[10px] font-bold text-rose-800 uppercase tracking-widest">Missed Visit Alerts</span>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                {missedAppts.map(appt => (
+                  <div key={appt.id} className="p-3 border-l-4 border-l-rose-600 border border-slate-200 bg-white">
+                    <h3 className="font-bold text-slate-900 text-[11px] uppercase tracking-tight">{appt.patientName}</h3>
+                    <p className="text-[9px] text-slate-500 mt-0.5 font-medium uppercase">{appt.location}</p>
                     <button 
                       onClick={() => store.rescheduleOneWeek(appt.id)}
-                      className="bg-slate-800 text-white py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-700"
+                      className="mt-2 w-full bg-slate-800 text-white py-1.5 rounded text-[9px] font-bold uppercase tracking-widest hover:bg-slate-700"
                     >
-                      Reschedule
-                    </button>
-                    <button className="bg-white border border-slate-200 text-slate-600 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-slate-50">
-                      View Chart
+                      Reschedule +7 Days
                     </button>
                   </div>
-                </div>
-              ))}
-              {missedAppts.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full opacity-25">
-                  <div className="w-12 h-12 rounded-full border-2 border-slate-300 mb-4" />
-                  <p className="text-[10px] font-bold uppercase tracking-widest">No Active Alerts</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Column 3: Logistics & Census */}
-          <div className="lg:col-span-4 medical-card flex flex-col h-[750px] overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 bg-slate-50">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Transportation Logs</span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <table className="w-full data-table">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th>Driver</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {state.transportRequests.slice(0, 15).map(ride => (
-                    <tr key={ride.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="font-bold text-slate-700 text-xs">{state.patients.find(p => p.id === ride.patientId)?.name.split(' ')[0]}</td>
-                      <td className="text-slate-500 text-[10px]">{ride.driverName || 'UNASSIGNED'}</td>
-                      <td>
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full border uppercase ${ride.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-blue-50 text-blue-700 border-blue-200'}`}>
-                          {ride.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                ))}
+                {missedAppts.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full opacity-20">
+                    <p className="text-[10px] font-bold uppercase tracking-widest">No Alerts</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

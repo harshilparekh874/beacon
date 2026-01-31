@@ -51,9 +51,9 @@ async function decodeAudioData(
 const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
   const [isActive, setIsActive] = useState(false);
   const [status, setStatus] = useState<'idle' | 'listening' | 'speaking' | 'processing'>('idle');
-  const [transcript, setTranscript] = useState('');
+  const [userTranscript, setUserTranscript] = useState('');
+  const [aiTranscript, setAiTranscript] = useState('');
 
-  // Critical Ref to avoid stale closures in the WebSocket callbacks
   const onActionRef = useRef(onAction);
   useEffect(() => {
     onActionRef.current = onAction;
@@ -82,7 +82,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
 
     for (let i = 0; i < resampledLength; i++) {
       const index = Math.floor(i * ratio);
-      int16[i] = Math.max(-1, Math.min(1, data[index])) * 32768;
+      int16[i] = Math.max(-1, Math.min(1, data[index])) * 32767;
     }
 
     return {
@@ -95,9 +95,15 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     try {
       setIsActive(true);
       setStatus('listening');
+      setUserTranscript('');
+      setAiTranscript('');
 
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      // Critical: Resume contexts immediately on user gesture
+      await inCtx.resume();
+      await outCtx.resume();
       
       outCtxRef.current = outCtx;
       inCtxRef.current = inCtx;
@@ -116,6 +122,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
           tools: [{ functionDeclarations: CARE_ASSISTANT_TOOLS.functionDeclarations }],
           systemInstruction: instruction + ` SESSION_ROLE: ${role}.`,
           inputAudioTranscription: {},
+          outputAudioTranscription: {},
           thinkingConfig: { thinkingBudget: 0 },
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: isDoctorActive ? 'Fenrir' : 'Zephyr' } },
@@ -124,7 +131,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
         callbacks: {
           onopen: () => {
             const source = inCtx.createMediaStreamSource(stream);
-            const scriptProcessor = inCtx.createScriptProcessor(2048, 1, 1);
+            const scriptProcessor = inCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createBlob(inputData, inCtx.sampleRate);
@@ -136,48 +143,65 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
             scriptProcessor.connect(inCtx.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
+            // Handle Transcriptions
             if (message.serverContent?.inputTranscription) {
-              setTranscript(message.serverContent.inputTranscription.text);
+              setUserTranscript(message.serverContent.inputTranscription.text);
             }
-            const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-            if (audioData) {
-              setStatus('speaking');
-              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
-              const audioBuffer = await decodeAudioData(decode(audioData), outCtx, 24000, 1);
-              const source = outCtx.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(outCtx.destination);
-              source.onended = () => {
-                sourcesRef.current.delete(source);
-                if (sourcesRef.current.size === 0) setStatus('listening');
-              };
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
-              sourcesRef.current.add(source);
+            if (message.serverContent?.outputTranscription) {
+              setAiTranscript(prev => prev + message.serverContent!.outputTranscription!.text);
             }
+
+            // Handle Model Turn Parts (Audio & Text)
+            if (message.serverContent?.modelTurn?.parts) {
+              for (const part of message.serverContent.modelTurn.parts) {
+                if (part.text) {
+                  setAiTranscript(prev => prev + part.text);
+                }
+                if (part.inlineData?.data) {
+                  setStatus('speaking');
+                  nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
+                  const audioBuffer = await decodeAudioData(decode(part.inlineData.data), outCtx, 24000, 1);
+                  const source = outCtx.createBufferSource();
+                  source.buffer = audioBuffer;
+                  source.connect(outCtx.destination);
+                  source.onended = () => {
+                    sourcesRef.current.delete(source);
+                    if (sourcesRef.current.size === 0) setStatus('listening');
+                  };
+                  source.start(nextStartTimeRef.current);
+                  nextStartTimeRef.current += audioBuffer.duration;
+                  sourcesRef.current.add(source);
+                }
+              }
+            }
+
+            // Handle Tool Calls
             if (message.toolCall) {
               setStatus('processing');
-              const functionResponses = [];
               for (const fc of message.toolCall.functionCalls) {
-                // Use Ref current to get latest closure
                 const result = onActionRef.current({ functionName: fc.name, ...fc.args });
-                functionResponses.push({
-                  id: fc.id,
-                  name: fc.name,
-                  response: { result: result || "Action recorded." },
+                sessionPromise.then((session) => {
+                  session.sendToolResponse({ 
+                    functionResponses: {
+                      id: fc.id,
+                      name: fc.name,
+                      response: { result: result || "Action recorded." },
+                    }
+                  });
                 });
               }
-              sessionPromise.then((session) => {
-                session.sendToolResponse({ functionResponses });
-              });
             }
           },
           onclose: () => deactivate(),
-          onerror: (e) => deactivate(),
+          onerror: (e) => {
+            console.error("Live AI error:", e);
+            deactivate();
+          },
         },
       });
       sessionPromiseRef.current = sessionPromise;
     } catch (err) {
+      console.error("Connection failed:", err);
       deactivate();
     }
   };
@@ -190,7 +214,6 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
 
-    // Fixed: Check state and clear ref to prevent double closing
     const inCtx = inCtxRef.current;
     if (inCtx) {
       inCtxRef.current = null;
@@ -232,27 +255,33 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
                   {isMD ? 'Virtual Doctor Console' : 'Operational AI link'}
                 </span>
               </div>
-              <span className="text-[8px] font-bold opacity-30 uppercase">Secure</span>
+              <span className="text-[8px] font-bold opacity-30 uppercase">Live Session</span>
             </div>
             
-            <div className="space-y-4">
-               <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-sm flex items-center justify-center border transition-colors ${status === 'speaking' ? 'bg-blue-600 border-blue-400' : 'bg-white/5 border-white/10'}`}>
+            <div className="space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
+               <div className="flex items-center gap-3 sticky top-0 bg-inherit py-1 z-10">
+                  <div className={`w-8 h-8 rounded flex items-center justify-center border transition-colors ${status === 'speaking' ? 'bg-blue-600 border-blue-400' : 'bg-white/5 border-white/10'}`}>
                     {status === 'processing' ? (
-                       <div className="w-4 h-4 border-2 border-white/20 border-t-white animate-spin rounded-full" />
+                       <div className="w-3 h-3 border-2 border-white/20 border-t-white animate-spin rounded-full" />
                     ) : (
-                      <SvgIcons.Mic className="w-4 h-4 text-white" />
+                      <SvgIcons.Mic className="w-3 h-3 text-white" />
                     )}
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold opacity-40 uppercase leading-none mb-1 tracking-tighter">AI Processing</p>
-                    <p className="text-xs font-bold uppercase tracking-widest">{status}</p>
+                    <p className="text-[10px] font-bold opacity-40 uppercase leading-none tracking-tighter">AI Status</p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest">{status}</p>
                   </div>
                </div>
                
-               {transcript && (
-                 <div className={`p-3 rounded text-[11px] font-medium italic border-l-2 transition-all ${isMD ? 'bg-blue-800 border-white' : 'bg-slate-800 border-blue-500'}`}>
-                   "{transcript}"
+               {userTranscript && (
+                 <div className="p-2 rounded bg-white/5 border border-white/10 text-[10px] text-blue-300 font-medium italic">
+                   " {userTranscript} "
+                 </div>
+               )}
+
+               {aiTranscript && (
+                 <div className={`p-2 rounded text-[10px] font-medium border-l-2 transition-all ${isMD ? 'bg-blue-800 border-white text-white' : 'bg-slate-800 border-blue-500 text-slate-200'}`}>
+                   {aiTranscript}
                  </div>
                )}
             </div>

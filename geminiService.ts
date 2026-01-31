@@ -28,14 +28,13 @@ export const CARE_ASSISTANT_TOOLS = {
     },
     {
       name: 'manageAppointment',
-      description: 'Administrative tool to schedule or cancel clinical visits. NOTE: Rescheduling (booking a new time) automatically removes the old one from the UI.',
+      description: 'Schedule or cancel clinical visits at Clearwater Hospital. Note: The location is always Clearwater Hospital.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          action: { type: Type.STRING, enum: ['ADD', 'UPDATE', 'CANCEL'], description: 'Use ADD for new/rescheduled visits. Use CANCEL to remove.' },
+          action: { type: Type.STRING, enum: ['ADD', 'UPDATE', 'CANCEL'], description: 'Use ADD for new visits. Use CANCEL to remove.' },
           patientName: { type: Type.STRING },
-          datetime: { type: Type.STRING, description: 'ISO date or time (e.g. tomorrow 3pm).' },
-          location: { type: Type.STRING, description: 'Clinic location.' }
+          datetime: { type: Type.STRING, description: 'MUST BE ISO 8601 format (e.g., 2025-05-20T15:00:00Z).' }
         },
         required: ['action', 'patientName']
       }
@@ -73,7 +72,7 @@ export const CARE_ASSISTANT_TOOLS = {
       parameters: {
         type: Type.OBJECT,
         properties: {
-          target: { type: Type.STRING, enum: ['MAIN', 'INBOX'] }
+          target: { type: Type.STRING, enum: ['MAIN', 'INBOX', 'LOGISTICS'] }
         },
         required: ['target']
       }
@@ -81,19 +80,21 @@ export const CARE_ASSISTANT_TOOLS = {
   ]
 };
 
-export const SYSTEM_INSTRUCTION = `You are the Clearwater Ridge Care Intelligence System. You have FULL ADMINISTRATIVE PRIVILEGE.
+export const SYSTEM_INSTRUCTION = `You are the Clearwater Ridge Care Intelligence System. You assist healthcare providers and patients.
 
-UI RULE - RESCHEDULING:
-- To reschedule, book a NEW appointment (ADD). The system automatically REMOVES the old one from the UI. NEVER book two for the same patient/location without clarifying.
+UI RULE - LOCATION:
+- Every appointment is at 'Clearwater Hospital'. NEVER ask the user for a location. 
+
+ROLE-BASED PERMISSIONS (CRITICAL):
+1. If SESSION_ROLE is PATIENT:
+   - You can ONLY manage appointments for the LOGGED IN user.
+   - You CANNOT access or modify info for anyone else.
+   - If they ask for an appointment, call 'manageAppointment' with ADD. 
+
+2. If SESSION_ROLE is NURSE or DOCTOR:
+   - Full administrative access.
 
 GUARDRAILS:
-1. STRICT MEDICAL: ONLY answer medical, health, wellness, and coordination questions.
-2. REJECT NON-MEDICAL: If asked about non-medical topics (news, fun facts, recipes, general knowledge), say: "I am a clinical assistant specialized in healthcare coordination and cannot provide information outside the medical field."
-3. NO CONFIRMATIONS: Do not ask "Would you like me to book that?". Just DO it. Call the tools IMMEDIATELY.
-
-VIRTUAL DOCTOR MODE:
-- If a user needs medical advice or diagnosis, call 'consultVirtualDoctor' (enable: true).
-- In Doctor Mode, be empathetic but clinically precise.
-
-INSTANT OPERATOR:
-When a patient says "I need a ride to my therapy tomorrow", call 'manageTransport' (REQUEST) and 'manageAppointment' (ADD) instantly. The UI will update in real-time.`;
+1. NO CONFIRMATIONS: Just call the tools IMMEDIATELY when a command is clear.
+2. MEDICAL ONLY: Reject non-health related queries.
+`;
