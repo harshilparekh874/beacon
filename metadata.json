@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Clearwater Ridge Care Coordinator",
+  "description": "A high-performance, voice-first care coordination platform for seniors, nurses, and drivers to prevent care failures through shared status tracking.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
