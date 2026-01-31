@@ -1,10 +1,14 @@
 
 import React, { useState } from 'react';
 import { store } from '../db';
-import { ApptStatus, TaskPriority } from '../types';
+import { ApptStatus, TaskPriority, User } from '../types';
 import { COLORS } from '../constants';
 
-const NurseView: React.FC = () => {
+interface NurseViewProps {
+  user: User;
+}
+
+const NurseView: React.FC<NurseViewProps> = ({ user }) => {
   const state = store.getState();
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'REFERRALS' | 'PATIENTS'>('OVERVIEW');
 

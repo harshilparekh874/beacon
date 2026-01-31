@@ -49,6 +49,7 @@ export interface User {
   name: string;
   role: Role;
   phone: string;
+  patientId?: string; // Linked patient profile
   avatar?: string;
 }
 

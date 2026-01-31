@@ -1,8 +1,13 @@
 
 import React from 'react';
 import { store } from '../db';
+import { User } from '../types';
 
-const InboxView: React.FC = () => {
+interface InboxViewProps {
+  user: User;
+}
+
+const InboxView: React.FC<InboxViewProps> = ({ user }) => {
   const { notifications } = store.getState();
 
   return (

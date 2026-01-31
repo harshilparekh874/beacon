@@ -1,11 +1,17 @@
 
 import React, { useState } from 'react';
 import { store } from '../db';
-import { ApptStatus, TransportStatus } from '../types';
+import { ApptStatus, TransportStatus, User } from '../types';
 
-const PatientView: React.FC = () => {
+interface PatientViewProps {
+  user: User;
+}
+
+const PatientView: React.FC<PatientViewProps> = ({ user }) => {
   const state = store.getState();
-  const patient = state.patients[0]; // Logic for logged-in patient
+  // Find the patient profile linked to this user
+  const patient = state.patients.find(p => p.id === user.patientId) || state.patients[0];
+  
   const activeAppts = state.appointments.filter(a => 
     a.patientId === patient.id && 
     (a.status === ApptStatus.SCHEDULED || a.status === ApptStatus.CONFIRMED)

@@ -40,7 +40,7 @@ const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
           </div>
         </div>
         <div className="bg-slate-50 p-4 border-t border-slate-200 text-center">
-          <p className="text-[10px] text-slate-400 font-bold uppercase">Authorized Personnel Only • v2.5.2-LTS</p>
+          <p className="text-[10px] text-slate-400 font-bold uppercase">Authorized Personnel Only • v3.0.0-PRO</p>
         </div>
       </div>
     </div>
@@ -50,43 +50,55 @@ const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentView, setCurrentView] = useState<'MAIN' | 'INBOX'>('MAIN');
-  const [, setTick] = useState(0);
+  const [appState, setAppState] = useState(store.getState());
 
   useEffect(() => {
-    return store.subscribe(() => setTick(t => t + 1));
+    return store.subscribe(() => {
+      setAppState({ ...store.getState() });
+    });
   }, []);
 
   const handleVoiceAction = (data: any) => {
-    const state = store.getState();
     switch (data.functionName || "") {
+      case "consultVirtualDoctor":
+        store.toggleVirtualDoctor(data.enable);
+        return `Consultation mode ${data.enable ? 'engaged' : 'disengaged'}.`;
       case "manageAppointment":
-        if (data.action === 'ADD') store.addAppointment(data.patientName, data.datetime, data.location);
+        if (data.action === 'ADD') store.addAppointment(data.patientName, data.datetime || new Date().toISOString(), data.location || 'Clinic');
         else if (data.action === 'CANCEL') store.removeAppointment(data.patientName, data.location);
         else store.updateAppointmentTime(data.patientName, data.datetime, data.location);
-        return "Clinical record updated successfully.";
+        return "Clinical schedule updated.";
       case "manageTask":
-        store.manageTask(data.action, data.patientName, data.title, data.priority as TaskPriority, data.dueDate);
-        return "Care plan task modified.";
+        store.manageTask(data.action, data.patientName, data.title, data.priority as TaskPriority);
+        return "Work queue modified.";
       case "manageTransport":
-        store.manageTransport(data.action, data.patientName, data.driverName, data.datetime);
-        return "Transportation logistics updated.";
+        store.manageTransport(data.action, data.patientName, data.driverName);
+        return "Logistics updated.";
       case "navigate":
-        setCurrentView(data.target === 'INBOX' ? 'INBOX' : 'MAIN');
-        return "Switched view context.";
+        setCurrentView(data.target);
+        return `Navigation to ${data.target} verified.`;
+      case "getPatientInfo":
+        const p = appState.patients.find(pt => pt.name.toLowerCase().includes(data.patientName?.toLowerCase() || ''));
+        return p ? `${p.name}: Risk ${p.riskLevel}. Notes: ${p.notes}` : "Record not found.";
       default:
-        return "Command processed.";
+        return "Administrative change recorded.";
     }
   };
 
   if (!currentUser) return <LoginView onLogin={setCurrentUser} />;
 
+  const { systemConfig } = appState;
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className={`min-h-screen flex flex-col transition-colors duration-500 ${systemConfig.theme === 'emergency' ? 'bg-rose-50' : 'bg-slate-50'}`}>
       <nav className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-50 shadow-sm">
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-blue-800 rounded-sm flex items-center justify-center text-white font-bold text-xs">C</div>
+            <div className={`w-6 h-6 ${systemConfig.theme === 'emergency' ? 'bg-rose-600' : 'bg-blue-800'} rounded-sm flex items-center justify-center text-white font-bold text-xs`}>C</div>
             <span className="font-bold text-slate-900 tracking-tight">Clearwater Ridge</span>
+            {systemConfig.virtualDoctorActive && (
+              <span className="bg-blue-600 text-white text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ml-2 animate-pulse">MD ACTIVE</span>
+            )}
           </div>
           <div className="hidden lg:flex items-center gap-1">
             <button 
@@ -111,7 +123,10 @@ const App: React.FC = () => {
             <p className="text-sm font-semibold text-slate-800 mt-1">{currentUser.name}</p>
           </div>
           <button 
-            onClick={() => setCurrentUser(null)} 
+            onClick={() => {
+              store.setTheme('clinical');
+              setCurrentUser(null);
+            }} 
             className="text-[10px] font-bold uppercase text-slate-400 hover:text-rose-600 transition-colors border border-slate-200 px-2 py-1 rounded"
           >
             Sign Out
@@ -128,12 +143,12 @@ const App: React.FC = () => {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.1 }}
             >
-              {currentView === 'INBOX' ? <InboxView /> : (
+              {currentView === 'INBOX' ? <InboxView user={currentUser} /> : (
                 <>
-                  {currentUser.role === Role.NURSE && <NurseView />}
-                  {currentUser.role === Role.PATIENT && <PatientView />}
-                  {currentUser.role === Role.DRIVER && <DriverView />}
-                  {currentUser.role === Role.DOCTOR && <DoctorView />}
+                  {currentUser.role === Role.NURSE && <NurseView user={currentUser} />}
+                  {currentUser.role === Role.PATIENT && <PatientView user={currentUser} />}
+                  {currentUser.role === Role.DRIVER && <DriverView user={currentUser} />}
+                  {currentUser.role === Role.DOCTOR && <DoctorView user={currentUser} />}
                 </>
               )}
             </motion.div>

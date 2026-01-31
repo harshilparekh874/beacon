@@ -1,19 +1,22 @@
 
 import React, { useState } from 'react';
 import { store } from '../db';
-import { ApptStatus } from '../types';
+import { ApptStatus, User } from '../types';
 
-const DoctorView: React.FC = () => {
+interface DoctorViewProps {
+  user: User;
+}
+
+const DoctorView: React.FC<DoctorViewProps> = ({ user }) => {
   const state = store.getState();
-  const doctor = state.users.find(u => u.id === 'u2');
   const appts = state.appointments.filter(a => a.status === ApptStatus.SCHEDULED);
   const [message, setMessage] = useState('');
 
   const handleSendMessage = () => {
     if (!message.trim()) return;
-    store.sendMessage('u2', message, 'u1');
+    store.sendMessage(user.id, message, 'u1');
     setMessage('');
-    store.addNotification(`Dr. Wilson recorded a clinical note.`);
+    store.addNotification(`${user.name} recorded a clinical note.`);
   };
 
   return (
@@ -21,7 +24,7 @@ const DoctorView: React.FC = () => {
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-200 pb-10 gap-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Clinical Attending Portal</h1>
-          <p className="text-sm text-slate-500 mt-1 uppercase font-bold tracking-widest">Institution: Clearwater Ridge • Provider: {doctor?.name}</p>
+          <p className="text-sm text-slate-500 mt-1 uppercase font-bold tracking-widest">Institution: Clearwater Ridge • Provider: {user.name}</p>
         </div>
         <div className="flex items-center gap-6 bg-white border border-slate-200 p-4 rounded shadow-sm">
            <div className="text-right">

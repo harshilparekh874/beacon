@@ -4,12 +4,20 @@ import {
   TransportStatus, TaskPriority, FollowUpTask, TransportRequest, Notification, Message, Appointment, User, Referral
 } from './types';
 
-const INITIAL_DATA: AppState = {
+interface ExtendedAppState extends AppState {
+  systemConfig: {
+    seniorMode: boolean;
+    virtualDoctorActive: boolean;
+    theme: 'clinical' | 'emergency';
+  };
+}
+
+const INITIAL_DATA: ExtendedAppState = {
   users: [
     { id: 'u1', name: 'Nurse Sarah', role: Role.NURSE, phone: '555-0101' },
     { id: 'u2', name: 'Dr. James Wilson', role: Role.DOCTOR, phone: '555-0102' },
     { id: 'u3', name: 'Bill Driver', role: Role.DRIVER, phone: '555-0103' },
-    { id: 'u4', name: 'Margaret Smith', role: Role.PATIENT, phone: '555-0104' },
+    { id: 'u4', name: 'Margaret Smith', role: Role.PATIENT, phone: '555-0104', patientId: 'p1' },
   ],
   patients: [
     { id: 'p1', name: 'Margaret Smith', dob: '1942-05-12', phone: '555-0104', address: '123 Ridge Rd, Clearwater', riskLevel: RiskLevel.HIGH, notes: 'Requires wheelchair access, post-hip surgery.' },
@@ -34,32 +42,34 @@ const INITIAL_DATA: AppState = {
   messages: [],
   notifications: [
     { id: 'n-init', userId: 'u1', message: 'Welcome to Clearwater Ridge Care Coordinator.', status: 'unread', createdAt: new Date().toISOString() }
-  ]
+  ],
+  systemConfig: {
+    seniorMode: true,
+    virtualDoctorActive: false,
+    theme: 'clinical'
+  }
 };
 
 class Store {
-  private data: AppState = INITIAL_DATA;
+  private data: ExtendedAppState = INITIAL_DATA;
   private listeners: (() => void)[] = [];
 
   constructor() {
-    const savedRides = localStorage.getItem('transport_requests_cache');
-    if (savedRides) {
+    const saved = localStorage.getItem('clearwater_state_v5');
+    if (saved) {
       try {
-        this.data.transportRequests = JSON.parse(savedRides);
+        this.data = JSON.parse(saved);
       } catch (e) {
-        console.error("Failed to restore transport cache", e);
+        console.error("Failed to restore state", e);
       }
     }
   }
 
-  getState() { return this.data; }
-  getNotifications() { return this.data.notifications; }
+  getState() { return { ...this.data }; }
   
-  setState(newData: Partial<AppState>) {
+  setState(newData: Partial<ExtendedAppState>) {
     this.data = { ...this.data, ...newData };
-    if (newData.transportRequests) {
-      localStorage.setItem('transport_requests_cache', JSON.stringify(this.data.transportRequests));
-    }
+    localStorage.setItem('clearwater_state_v5', JSON.stringify(this.data));
     this.notify();
   }
 
@@ -70,6 +80,15 @@ class Store {
 
   private notify() {
     this.listeners.forEach(l => l());
+  }
+
+  toggleVirtualDoctor(active: boolean) {
+    this.setState({ systemConfig: { ...this.data.systemConfig, virtualDoctorActive: active } });
+    this.addNotification(active ? "VIRTUAL DOCTOR MODE ENGAGED" : "COORDINATION ASSISTANT ENGAGED");
+  }
+
+  setTheme(theme: 'clinical' | 'emergency') {
+    this.setState({ systemConfig: { ...this.data.systemConfig, theme } });
   }
 
   addNotification(message: string, userId: string = 'u1') {
@@ -90,9 +109,18 @@ class Store {
     this.setState({ notifications });
   }
 
-  addAppointment(patientName: string, datetime: string, location: string = 'Clearwater Ridge Main Clinic', provider: string = 'Staff Physician') {
+  addAppointment(patientName: string, datetime: string, location: string = 'Clinic', provider: string = 'Physician') {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return null;
+
+    // Filter out previous scheduled/confirmed appointments for same patient + location
+    // This removes them from the UI because views filter for SCHEDULED/CONFIRMED status
+    const filteredAppts = this.data.appointments.filter(a => 
+      !(a.patientId === patient.id && 
+        a.location.toLowerCase().includes(location.toLowerCase()) && 
+        (a.status === ApptStatus.SCHEDULED || a.status === ApptStatus.CONFIRMED))
+    );
+
     const newAppt: Appointment = {
       id: `a-${Date.now()}`,
       patientId: patient.id,
@@ -102,60 +130,48 @@ class Store {
       status: ApptStatus.SCHEDULED,
       provider
     };
-    this.setState({ appointments: [newAppt, ...this.data.appointments] });
-    this.addNotification(`Scheduled ${location} for ${patient.name}`);
+    
+    this.setState({ appointments: [newAppt, ...filteredAppts] });
+    this.addNotification(`Rescheduled: ${location} updated for ${patient.name}.`);
     return newAppt;
   }
 
   removeAppointment(patientName: string, location?: string) {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
-    const appt = this.data.appointments.find(a => a.patientId === patient.id && (!location || a.location.includes(location)));
-    if (!appt) return false;
-    this.setState({ appointments: this.data.appointments.map(a => a.id === appt.id ? { ...a, status: ApptStatus.CANCELLED } : a) });
-    this.addNotification(`Cancelled ${appt.location} for ${patient.name}`);
+    const appts = this.data.appointments.filter(a => 
+      !(a.patientId === patient.id && (!location || a.location.toLowerCase().includes(location.toLowerCase())))
+    );
+    this.setState({ appointments: appts });
+    this.addNotification(`Removed clinical visit for ${patient.name}.`);
     return true;
   }
 
   updateAppointmentTime(patientName: string, newDatetime: string, location?: string) {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
-    const appt = this.data.appointments.find(a => a.patientId === patient.id && (!location || a.location.includes(location)));
-    if (!appt) return false;
-    this.setState({ appointments: this.data.appointments.map(a => a.id === appt.id ? { ...a, datetime: new Date(newDatetime).toISOString() } : a) });
-    this.addNotification(`Rescheduled ${appt.location} for ${patient.name}`);
+    const appts = this.data.appointments.map(a => 
+      (a.patientId === patient.id && (!location || a.location.toLowerCase().includes(location.toLowerCase())))
+      ? { ...a, datetime: new Date(newDatetime).toISOString() }
+      : a
+    );
+    this.setState({ appointments: appts });
     return true;
   }
 
-  // Fix: Added rescheduleOneWeek to fix error in NurseView.tsx
-  rescheduleOneWeek(apptId: string) {
-    const appt = this.data.appointments.find(a => a.id === apptId);
-    if (!appt) return false;
-    const newDate = new Date(appt.datetime);
-    newDate.setDate(newDate.getDate() + 7);
-    this.setState({
-      appointments: this.data.appointments.map(a => 
-        a.id === apptId ? { ...a, datetime: newDate.toISOString(), status: ApptStatus.SCHEDULED } : a
-      )
-    });
-    this.addNotification(`Rescheduled ${appt.location} for ${appt.patientName} to ${newDate.toLocaleDateString()}`);
-    return true;
-  }
-
-  manageTask(action: 'CREATE' | 'RESOLVE', patientName: string, title?: string, priority: TaskPriority = TaskPriority.MEDIUM, dueDate?: string) {
+  manageTask(action: 'CREATE' | 'RESOLVE', patientName: string, title?: string, priority: TaskPriority = TaskPriority.MEDIUM) {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
     if (action === 'CREATE') {
       const newTask: FollowUpTask = {
         id: `k-${Date.now()}`,
         patientId: patient.id,
-        title: title || 'Follow-up Task',
+        title: title || 'Care Review',
         priority,
         status: 'PENDING',
-        dueDate: dueDate || new Date().toISOString().split('T')[0]
+        dueDate: new Date().toISOString().split('T')[0]
       };
       this.setState({ tasks: [newTask, ...this.data.tasks] });
-      this.addNotification(`Task created: ${title} for ${patient.name}`);
     } else {
       const task = this.data.tasks.find(t => t.patientId === patient.id && t.status === 'PENDING');
       if (task) this.setState({ tasks: this.data.tasks.filter(t => t.id !== task.id) });
@@ -163,24 +179,7 @@ class Store {
     return true;
   }
 
-  manageReferral(patientName: string, specialty: string, provider: string, urgency: RiskLevel = RiskLevel.MEDIUM) {
-    const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
-    if (!patient) return false;
-    const newRef: Referral = {
-      id: `r-${Date.now()}`,
-      patientId: patient.id,
-      specialty,
-      provider,
-      urgency,
-      status: ReferralStatus.SENT,
-      requestedDate: new Date().toISOString().split('T')[0]
-    };
-    this.setState({ referrals: [newRef, ...this.data.referrals] });
-    this.addNotification(`Referral sent: ${specialty} for ${patient.name}`);
-    return true;
-  }
-
-  manageTransport(action: 'REQUEST' | 'CANCEL' | 'ASSIGN', patientName: string, driverName?: string, datetime?: string) {
+  manageTransport(action: 'REQUEST' | 'CANCEL' | 'ASSIGN', patientName: string, driverName?: string) {
     const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
     if (!patient) return false;
     if (action === 'REQUEST') {
@@ -189,7 +188,7 @@ class Store {
         patientId: patient.id,
         pickupLocation: patient.address,
         destination: 'Clinic',
-        scheduledTime: datetime || new Date().toISOString(),
+        scheduledTime: new Date().toISOString(),
         status: TransportStatus.REQUESTED
       };
       this.setState({ transportRequests: [newRide, ...this.data.transportRequests] });
@@ -200,12 +199,11 @@ class Store {
         this.setState({ transportRequests: this.data.transportRequests.map(r => r.id === ride.id ? { ...r, driverId: driver.id, driverName: driver.name, status: TransportStatus.ASSIGNED } : r) });
       }
     } else {
-      this.setState({ transportRequests: this.data.transportRequests.map(r => r.patientId === patient.id ? { ...r, status: TransportStatus.FAILED } : r) });
+      this.setState({ transportRequests: this.data.transportRequests.filter(r => r.patientId !== patient.id) });
     }
     return true;
   }
 
-  // Fix: Added requestRide to fix error in PatientView.tsx
   requestRide(patientId: string, appointmentId: string) {
     const patient = this.data.patients.find(p => p.id === patientId);
     const appt = this.data.appointments.find(a => a.id === appointmentId);
@@ -221,45 +219,40 @@ class Store {
       status: TransportStatus.REQUESTED
     };
     this.setState({ transportRequests: [newRide, ...this.data.transportRequests] });
-    this.addNotification(`Transport requested for ${patient.name} to ${appt.location}`);
-    return true;
-  }
-
-  updatePatientRecord(patientName: string, riskLevel?: RiskLevel, notes?: string) {
-    const patient = this.data.patients.find(p => p.name.toLowerCase().includes(patientName.toLowerCase()));
-    if (!patient) return false;
-    const updated = this.data.patients.map(p => p.id === patient.id ? { 
-      ...p, 
-      riskLevel: riskLevel || p.riskLevel, 
-      notes: notes || p.notes 
-    } : p);
-    this.setState({ patients: updated });
-    this.addNotification(`Updated record for ${patient.name}`);
     return true;
   }
 
   confirmAppt(apptId: string) {
-    const appts = this.data.appointments.map(a => a.id === apptId ? { ...a, status: ApptStatus.CONFIRMED } : a);
+    this.setState({ 
+      appointments: this.data.appointments.map(a => a.id === apptId ? { ...a, status: ApptStatus.CONFIRMED } : a) 
+    });
+  }
+
+  // Implementation of rescheduleOneWeek to fix error in views/NurseView.tsx on line 82
+  rescheduleOneWeek(apptId: string) {
+    const appts = this.data.appointments.map(a => {
+      if (a.id === apptId) {
+        const nextWeek = new Date(a.datetime);
+        nextWeek.setDate(nextWeek.getDate() + 7);
+        return { ...a, datetime: nextWeek.toISOString(), status: ApptStatus.SCHEDULED };
+      }
+      return a;
+    });
     this.setState({ appointments: appts });
+    this.addNotification("Rescheduled missed appointment for one week from original date.");
   }
 
   requestMedicalHelp(patientId: string) {
-    this.addNotification(`EMERGENCY: Patient ${patientId} needs help.`);
+    this.addNotification(`EMERGENCY ALERT: Patient ${patientId} requested help.`);
+    this.setTheme('emergency');
   }
 
-  // Fix: Added requestPrivateSupport to fix error in PatientView.tsx
   requestPrivateSupport(patientId: string) {
-    this.addNotification(`SUPPORT REQUEST: Patient ${patientId} requested a private talk.`);
+    this.addNotification(`SUPPORT REQUEST: Patient ${patientId} is requesting a team member talk.`);
   }
 
-  // Fix: Added callDriver to fix error in PatientView.tsx
   callDriver(rideId: string) {
-    const ride = this.data.transportRequests.find(r => r.id === rideId);
-    if (ride && ride.driverName) {
-      this.addNotification(`Calling driver ${ride.driverName} for ride ${rideId}...`);
-    } else {
-      this.addNotification(`Calling ride center for ride ${rideId}...`);
-    }
+    this.addNotification(`Connecting to transportation center for ride ${rideId}...`);
   }
 
   sendMessage(senderId: string, text: string, receiverId: string) {
@@ -275,14 +268,12 @@ class Store {
     this.setState({ transportRequests: this.data.transportRequests.map(r => r.id === rideId ? { ...r, status } : r) });
   }
 
-  // Fix: Added failRide to fix error in DriverView.tsx
   failRide(rideId: string, reason: string) {
     this.setState({
       transportRequests: this.data.transportRequests.map(r => 
         r.id === rideId ? { ...r, status: TransportStatus.FAILED } : r
       )
     });
-    this.addNotification(`Ride ${rideId} failed: ${reason}`);
   }
 }
 

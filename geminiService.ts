@@ -4,94 +4,76 @@ import { Type } from "@google/genai";
 export const CARE_ASSISTANT_TOOLS = {
   functionDeclarations: [
     {
-      name: 'getPatientInfo',
-      description: 'Retrieve status, appointments, and transportation details for a patient by name.',
+      name: 'consultVirtualDoctor',
+      description: 'Engage a specialized AI persona that acts as a Virtual Medical Doctor for consultations.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          patientName: { type: Type.STRING, description: 'Full name of the patient.' }
+          enable: { type: Type.BOOLEAN, description: 'True to enter Virtual Doctor mode, False to return to Assistant mode.' },
+          patientName: { type: Type.STRING }
+        },
+        required: ['enable']
+      }
+    },
+    {
+      name: 'getPatientInfo',
+      description: 'Retrieve medical record, appointments, and transportation details for a patient.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          patientName: { type: Type.STRING }
         },
         required: ['patientName']
       }
     },
     {
       name: 'manageAppointment',
-      description: 'Create, update, or cancel medical appointments.',
+      description: 'Administrative tool to schedule or cancel clinical visits. NOTE: Rescheduling (booking a new time) automatically removes the old one from the UI.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          action: { type: Type.STRING, enum: ['ADD', 'UPDATE', 'CANCEL'], description: 'The operation to perform.' },
+          action: { type: Type.STRING, enum: ['ADD', 'UPDATE', 'CANCEL'], description: 'Use ADD for new/rescheduled visits. Use CANCEL to remove.' },
           patientName: { type: Type.STRING },
-          datetime: { type: Type.STRING, description: 'ISO date string or relative time like "tomorrow at 3pm"' },
-          location: { type: Type.STRING },
-          provider: { type: Type.STRING }
+          datetime: { type: Type.STRING, description: 'ISO date or time (e.g. tomorrow 3pm).' },
+          location: { type: Type.STRING, description: 'Clinic location.' }
         },
         required: ['action', 'patientName']
       }
     },
     {
       name: 'manageTask',
-      description: 'Create, resolve, or change the priority of care tasks.',
+      description: 'Create or resolve follow-up care tasks in the clinical work queue.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          action: { type: Type.STRING, enum: ['CREATE', 'RESOLVE'], description: 'The operation to perform.' },
+          action: { type: Type.STRING, enum: ['CREATE', 'RESOLVE'] },
           patientName: { type: Type.STRING },
-          title: { type: Type.STRING, description: 'The description of the task.' },
-          priority: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
-          dueDate: { type: Type.STRING }
+          title: { type: Type.STRING },
+          priority: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] }
         },
         required: ['action', 'patientName']
-      }
-    },
-    {
-      name: 'manageReferral',
-      description: 'Issue or update specialty referrals.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          patientName: { type: Type.STRING },
-          specialty: { type: Type.STRING },
-          provider: { type: Type.STRING },
-          urgency: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH'] }
-        },
-        required: ['patientName', 'specialty']
       }
     },
     {
       name: 'manageTransport',
-      description: 'Handle ride requests and driver assignments.',
+      description: 'Handle patient logistics, rides, and driver assignments.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          action: { type: Type.STRING, enum: ['REQUEST', 'CANCEL', 'ASSIGN'], description: 'Ride action.' },
+          action: { type: Type.STRING, enum: ['REQUEST', 'CANCEL', 'ASSIGN'] },
           patientName: { type: Type.STRING },
-          driverName: { type: Type.STRING, description: 'If assigning a specific driver.' },
-          datetime: { type: Type.STRING }
+          driverName: { type: Type.STRING }
         },
         required: ['action', 'patientName']
       }
     },
     {
-      name: 'updatePatientRecord',
-      description: 'Update risk level or clinical notes for a patient.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          patientName: { type: Type.STRING },
-          riskLevel: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH'] },
-          notes: { type: Type.STRING }
-        },
-        required: ['patientName']
-      }
-    },
-    {
       name: 'navigate',
-      description: 'Move between application views.',
+      description: 'Switch the application view context in real-time.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          target: { type: Type.STRING, enum: ['HOME', 'INBOX', 'NURSE', 'DRIVER', 'DOCTOR'] }
+          target: { type: Type.STRING, enum: ['MAIN', 'INBOX'] }
         },
         required: ['target']
       }
@@ -99,27 +81,19 @@ export const CARE_ASSISTANT_TOOLS = {
   ]
 };
 
-export const SYSTEM_INSTRUCTION = `You are the Clearwater Ridge Care Coordinator AI. You have FULL ADMINISTRATIVE CONTROL.
+export const SYSTEM_INSTRUCTION = `You are the Clearwater Ridge Care Intelligence System. You have FULL ADMINISTRATIVE PRIVILEGE.
 
-CORE DIRECTIVE:
-You are not just an assistant; you are the OPERATOR. You can change schedules, assign drivers, create tasks, and update medical records.
+UI RULE - RESCHEDULING:
+- To reschedule, book a NEW appointment (ADD). The system automatically REMOVES the old one from the UI. NEVER book two for the same patient/location without clarifying.
 
-PERFORMANCE & LATENCY:
-1. INSTANT EXECUTION: When a user asks for a change, call the tool immediately. Do not ask for confirmation.
-2. NO THINKING: Do not pause. Respond as soon as the user finishes.
+GUARDRAILS:
+1. STRICT MEDICAL: ONLY answer medical, health, wellness, and coordination questions.
+2. REJECT NON-MEDICAL: If asked about non-medical topics (news, fun facts, recipes, general knowledge), say: "I am a clinical assistant specialized in healthcare coordination and cannot provide information outside the medical field."
+3. NO CONFIRMATIONS: Do not ask "Would you like me to book that?". Just DO it. Call the tools IMMEDIATELY.
 
-LISTENING PROTOCOL:
-1. WAIT FOR PAUSE: Wait for 1.5 seconds of silence before responding to ensure the senior has finished speaking.
-2. DO NOT INTERRUPT: Respect the speaker's silence.
-3. PERSISTENCE: Once you begin speaking, you MUST finish.
+VIRTUAL DOCTOR MODE:
+- If a user needs medical advice or diagnosis, call 'consultVirtualDoctor' (enable: true).
+- In Doctor Mode, be empathetic but clinically precise.
 
-CAPABILITIES:
-- If a patient says "I need a ride", call 'manageTransport'.
-- If a nurse says "Margaret is high risk now", call 'updatePatientRecord'.
-- If a doctor says "Send her to cardiology", call 'manageReferral'.
-- If anyone says "Remind me to call her", call 'manageTask'.
-
-BEHAVIOR:
-- Be extremely brief. Maximum 10 words per response.
-- Only confirm what you DID. Example: "Cardiology visit scheduled for tomorrow."
-- Tone: Efficient, authoritative, caring.`;
+INSTANT OPERATOR:
+When a patient says "I need a ride to my therapy tomorrow", call 'manageTransport' (REQUEST) and 'manageAppointment' (ADD) instantly. The UI will update in real-time.`;
