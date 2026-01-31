@@ -10,9 +10,6 @@ interface VoiceAssistantProps {
   role: string;
 }
 
-/**
- * Base64 encoding helper following strict guidelines.
- */
 function encode(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
@@ -22,9 +19,6 @@ function encode(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-/**
- * Base64 decoding helper following strict guidelines.
- */
 function decode(base64: string) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
@@ -34,9 +28,6 @@ function decode(base64: string) {
   return bytes;
 }
 
-/**
- * Decodes raw PCM audio data returned from the API into an AudioBuffer.
- */
 async function decodeAudioData(
   data: Uint8Array,
   ctx: AudioContext,
@@ -76,9 +67,6 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     nextStartTimeRef.current = 0;
   };
 
-  /**
-   * Resamples input data to 16kHz and creates a PCM Blob for the API.
-   */
   const createBlob = (data: Float32Array, inputRate: number): Blob => {
     const targetRate = 16000;
     const ratio = inputRate / targetRate;
@@ -101,10 +89,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
       setIsActive(true);
       setStatus('listening');
 
-      // Initialize AudioContexts
-      // Output: 24kHz as per API default
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      // Input: Hardware default to avoid NotSupportedError when connecting MediaStreamSource
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       
       outCtxRef.current = outCtx;
@@ -132,7 +117,6 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
             
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
-              // Perform manual downsampling to 16kHz
               const pcmBlob = createBlob(inputData, inCtx.sampleRate);
               
               sessionPromise.then((session) => {
@@ -144,12 +128,10 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
             scriptProcessor.connect(inCtx.destination);
           },
           onmessage: async (message: LiveServerMessage) => {
-            // Handle Transcription
             if (message.serverContent?.inputTranscription) {
               setTranscript(message.serverContent.inputTranscription.text);
             }
 
-            // Handle Audio Playback
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData) {
               setStatus('speaking');
@@ -160,34 +142,38 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
               source.connect(outCtx.destination);
               source.onended = () => {
                 sourcesRef.current.delete(source);
-                if (sourcesRef.current.size === 0) setStatus('listening');
+                // Only return to listening if we aren't currently queueing more audio
+                if (sourcesRef.current.size === 0) {
+                  setStatus('listening');
+                }
               };
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               sourcesRef.current.add(source);
             }
 
-            // Handle Tool Calls
             if (message.toolCall) {
               setStatus('processing');
               for (const fc of message.toolCall.functionCalls) {
                 const result = onAction({ action: fc.name.toUpperCase(), ...fc.args });
                 sessionPromise.then((session) => {
                   session.sendToolResponse({
-                    functionResponses: {
+                    functionResponses: [{
                       id: fc.id,
                       name: fc.name,
-                      response: { result: result || "Action complete." },
-                    }
+                      response: { result: result || "Action successfully performed." },
+                    }]
                   });
                 });
               }
             }
 
-            // Handle Interruption
+            // ZERO INTERRUPTIONS: 
+            // We specifically IGNORE the 'interrupted' signal here to ensure 
+            // the AI finishes its spoken response even if the user is talking.
             if (message.serverContent?.interrupted) {
-              stopAllAudio();
-              setStatus('listening');
+              console.log("Interruption signal ignored to ensure continuous playback.");
+              // We do not call stopAllAudio() here.
             }
           },
           onclose: () => deactivate(),
@@ -233,7 +219,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
             />
             <div className="relative z-10 flex flex-col items-center gap-4">
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${status === 'listening' ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500'}`} />
+                <span className={`w-2.5 h-2.5 rounded-full ${status === 'listening' ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-50'}`} />
                 <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Care Intelligence</span>
               </div>
               
