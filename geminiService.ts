@@ -15,82 +15,111 @@ export const CARE_ASSISTANT_TOOLS = {
       }
     },
     {
-      name: 'addAppointment',
-      description: 'Schedule a new medical appointment. Use "Clearwater Ridge Main Clinic" if location is not mentioned.',
+      name: 'manageAppointment',
+      description: 'Create, update, or cancel medical appointments.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          patientName: { type: Type.STRING, description: 'Name of the patient.' },
-          location: { type: Type.STRING, description: 'The clinic name. Default to "Clearwater Ridge Main Clinic" if unknown.' },
-          datetime: { type: Type.STRING, description: 'Date and time.' },
-          provider: { type: Type.STRING, description: 'Optional doctor name.' }
+          action: { type: Type.STRING, enum: ['ADD', 'UPDATE', 'CANCEL'], description: 'The operation to perform.' },
+          patientName: { type: Type.STRING },
+          datetime: { type: Type.STRING, description: 'ISO date string or relative time like "tomorrow at 3pm"' },
+          location: { type: Type.STRING },
+          provider: { type: Type.STRING }
         },
-        required: ['patientName', 'datetime']
+        required: ['action', 'patientName']
       }
     },
     {
-      name: 'removeAppointment',
-      description: 'Cancel or remove an existing appointment for a patient.',
+      name: 'manageTask',
+      description: 'Create, resolve, or change the priority of care tasks.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          patientName: { type: Type.STRING, description: 'Name of the patient.' },
-          location: { type: Type.STRING, description: 'Optional location to specify which appointment to remove.' }
+          action: { type: Type.STRING, enum: ['CREATE', 'RESOLVE'], description: 'The operation to perform.' },
+          patientName: { type: Type.STRING },
+          title: { type: Type.STRING, description: 'The description of the task.' },
+          priority: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] },
+          dueDate: { type: Type.STRING }
+        },
+        required: ['action', 'patientName']
+      }
+    },
+    {
+      name: 'manageReferral',
+      description: 'Issue or update specialty referrals.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          patientName: { type: Type.STRING },
+          specialty: { type: Type.STRING },
+          provider: { type: Type.STRING },
+          urgency: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH'] }
+        },
+        required: ['patientName', 'specialty']
+      }
+    },
+    {
+      name: 'manageTransport',
+      description: 'Handle ride requests and driver assignments.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          action: { type: Type.STRING, enum: ['REQUEST', 'CANCEL', 'ASSIGN'], description: 'Ride action.' },
+          patientName: { type: Type.STRING },
+          driverName: { type: Type.STRING, description: 'If assigning a specific driver.' },
+          datetime: { type: Type.STRING }
+        },
+        required: ['action', 'patientName']
+      }
+    },
+    {
+      name: 'updatePatientRecord',
+      description: 'Update risk level or clinical notes for a patient.',
+      parameters: {
+        type: Type.OBJECT,
+        properties: {
+          patientName: { type: Type.STRING },
+          riskLevel: { type: Type.STRING, enum: ['LOW', 'MEDIUM', 'HIGH'] },
+          notes: { type: Type.STRING }
         },
         required: ['patientName']
       }
     },
     {
-      name: 'updateAppointmentTime',
-      description: 'Change the date or time of an existing appointment.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          patientName: { type: Type.STRING, description: 'Name of the patient.' },
-          newDatetime: { type: Type.STRING, description: 'The new target date and time.' },
-          location: { type: Type.STRING, description: 'Optional location to specify which appointment to update.' }
-        },
-        required: ['patientName', 'newDatetime']
-      }
-    },
-    {
       name: 'navigate',
-      description: 'Move to a different view: home, inbox, nurse, driver, doctor.',
+      description: 'Move between application views.',
       parameters: {
         type: Type.OBJECT,
         properties: {
-          target: { type: Type.STRING }
+          target: { type: Type.STRING, enum: ['HOME', 'INBOX', 'NURSE', 'DRIVER', 'DOCTOR'] }
         },
         required: ['target']
-      }
-    },
-    {
-      name: 'reportMedicalHelp',
-      description: 'Trigger urgent medical alert for a patient.',
-      parameters: {
-        type: Type.OBJECT,
-        properties: {
-          patientId: { type: Type.STRING }
-        },
-        required: ['patientId']
       }
     }
   ]
 };
 
-export const SYSTEM_INSTRUCTION = `You are the Clearwater Ridge Care Coordinator AI. 
+export const SYSTEM_INSTRUCTION = `You are the Clearwater Ridge Care Coordinator AI. You have FULL ADMINISTRATIVE CONTROL.
 
-VOICE DYNAMICS:
-1. ZERO INTERRUPTIONS: You must NEVER stop talking until your sentence is finished. Ignore all background noise.
-2. ABSOLUTE PERSISTENCE: Even if the user makes a sound, you continue your response to completion.
+CORE DIRECTIVE:
+You are not just an assistant; you are the OPERATOR. You can change schedules, assign drivers, create tasks, and update medical records.
 
-CARE COORDINATION PROTOCOL:
-1. JUST DO IT: If a user mentions adding, removing, or changing an appointment, call the relevant tool immediately. 
-2. NO QUESTIONS: Never ask for permission or locations. Assume the "Clearwater Ridge Main Clinic" if unsure.
-3. FLEXIBILITY: You can remove appointments if requested (e.g., "Cancel my visit") or change times (e.g., "Move it to 3 PM").
-4. CONFIRM AFTER: Only tell the user what you did AFTER the tool has been called.
+PERFORMANCE & LATENCY:
+1. INSTANT EXECUTION: When a user asks for a change, call the tool immediately. Do not ask for confirmation.
+2. NO THINKING: Do not pause. Respond as soon as the user finishes.
+
+LISTENING PROTOCOL:
+1. WAIT FOR PAUSE: Wait for 1.5 seconds of silence before responding to ensure the senior has finished speaking.
+2. DO NOT INTERRUPT: Respect the speaker's silence.
+3. PERSISTENCE: Once you begin speaking, you MUST finish.
+
+CAPABILITIES:
+- If a patient says "I need a ride", call 'manageTransport'.
+- If a nurse says "Margaret is high risk now", call 'updatePatientRecord'.
+- If a doctor says "Send her to cardiology", call 'manageReferral'.
+- If anyone says "Remind me to call her", call 'manageTask'.
 
 BEHAVIOR:
-- When a patient name is mentioned, always run 'getPatientInfo' first to check context.
-- Be extremely brief. Use at most 15 words per response.
-- Your tone is professional, decisive, and efficient.`;
+- Be extremely brief. Maximum 10 words per response.
+- Only confirm what you DID. Example: "Cardiology visit scheduled for tomorrow."
+- Tone: Efficient, authoritative, caring.`;

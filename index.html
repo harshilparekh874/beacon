@@ -4,36 +4,59 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Clearwater Ridge Care Coordinator</title>
+  <title>Clearwater Ridge Clinical Operations</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --clinical-blue: #1e3a8a;
+      --clinical-bg: #f8fafc;
+      --clinical-border: #e2e8f0;
+      --text-main: #0f172a;
+    }
     body { 
       font-family: 'Inter', sans-serif; 
-      -webkit-tap-highlight-color: transparent;
-      overscroll-behavior-y: contain;
+      background-color: var(--clinical-bg);
+      color: var(--text-main);
+      -webkit-font-smoothing: antialiased;
     }
-    .senior-mode { font-size: 1.15rem; }
-    .senior-mode h1 { font-size: 2.25rem; }
-    .senior-mode button { min-height: 4rem; padding: 1rem 2rem; }
-    
-    /* Native-like momentum scrolling */
-    .overflow-y-auto {
-      -webkit-overflow-scrolling: touch;
+    .medical-card {
+      background: #ffffff;
+      border: 1px solid var(--clinical-border);
+      border-radius: 6px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
-
+    .data-table th {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      padding: 0.75rem 1rem;
+      border-bottom: 2px solid var(--clinical-border);
+      background-color: #f1f5f9;
+    }
+    .data-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--clinical-border);
+      font-size: 0.875rem;
+    }
+    .btn-clinical {
+      background-color: var(--clinical-blue);
+      color: white;
+      font-weight: 600;
+      padding: 0.5rem 1rem;
+      border-radius: 4px;
+      transition: background-color 0.15s ease;
+    }
+    .btn-clinical:hover {
+      background-color: #1e40af;
+    }
+    .senior-mode .btn-clinical {
+      padding: 1rem 2rem;
+      font-size: 1.25rem;
+    }
     @media (prefers-reduced-motion: reduce) {
-      * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-    }
-    
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
-
-    /* Fix for mobile height issues */
-    .h-screen-safe {
-      height: 100vh;
-      height: 100dvh;
+      * { animation: none !important; transition: none !important; }
     }
   </style>
 <script type="importmap">
@@ -48,7 +71,7 @@
 }
 </script>
 </head>
-<body class="bg-slate-50 text-slate-900 overflow-x-hidden selection:bg-indigo-100 selection:text-indigo-900">
+<body>
   <div id="root"></div>
 </body>
 </html>

@@ -106,6 +106,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
           tools: [{ functionDeclarations: CARE_ASSISTANT_TOOLS.functionDeclarations }],
           systemInstruction: SYSTEM_INSTRUCTION + ` Current role: ${role}.`,
           inputAudioTranscription: {},
+          thinkingConfig: { thinkingBudget: 0 },
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
           },
@@ -113,17 +114,14 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
         callbacks: {
           onopen: () => {
             const source = inCtx.createMediaStreamSource(stream);
-            const scriptProcessor = inCtx.createScriptProcessor(4096, 1, 1);
-            
+            const scriptProcessor = inCtx.createScriptProcessor(2048, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createBlob(inputData, inCtx.sampleRate);
-              
               sessionPromise.then((session) => {
                 session.sendRealtimeInput({ media: pcmBlob });
               });
             };
-            
             source.connect(scriptProcessor);
             scriptProcessor.connect(inCtx.destination);
           },
@@ -131,7 +129,6 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
             if (message.serverContent?.inputTranscription) {
               setTranscript(message.serverContent.inputTranscription.text);
             }
-
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
             if (audioData) {
               setStatus('speaking');
@@ -142,51 +139,34 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
               source.connect(outCtx.destination);
               source.onended = () => {
                 sourcesRef.current.delete(source);
-                // Only return to listening if we aren't currently queueing more audio
-                if (sourcesRef.current.size === 0) {
-                  setStatus('listening');
-                }
+                if (sourcesRef.current.size === 0) setStatus('listening');
               };
               source.start(nextStartTimeRef.current);
               nextStartTimeRef.current += audioBuffer.duration;
               sourcesRef.current.add(source);
             }
-
             if (message.toolCall) {
               setStatus('processing');
               for (const fc of message.toolCall.functionCalls) {
-                const result = onAction({ action: fc.name.toUpperCase(), ...fc.args });
+                const result = onAction({ functionName: fc.name, ...fc.args });
                 sessionPromise.then((session) => {
                   session.sendToolResponse({
                     functionResponses: [{
                       id: fc.id,
                       name: fc.name,
-                      response: { result: result || "Action successfully performed." },
+                      response: { result: result || "Action verified." },
                     }]
                   });
                 });
               }
             }
-
-            // ZERO INTERRUPTIONS: 
-            // We specifically IGNORE the 'interrupted' signal here to ensure 
-            // the AI finishes its spoken response even if the user is talking.
-            if (message.serverContent?.interrupted) {
-              console.log("Interruption signal ignored to ensure continuous playback.");
-              // We do not call stopAllAudio() here.
-            }
           },
           onclose: () => deactivate(),
-          onerror: (e) => {
-            console.error("Voice Assistant Error", e);
-            deactivate();
-          },
+          onerror: (e) => deactivate(),
         },
       });
-
       sessionPromiseRef.current = sessionPromise;
     } catch (err) {
-      console.error("Connection failed", err);
       deactivate();
     }
   };
@@ -203,47 +183,43 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
   };
 
   return (
-    <div className="fixed bottom-24 right-4 md:bottom-8 md:right-8 z-[100] flex flex-col items-end gap-3 pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-[100] pointer-events-none flex flex-col items-end gap-2">
       <AnimatePresence>
         {isActive && (
           <motion.div 
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="bg-white p-5 rounded-[36px] shadow-2xl border border-indigo-100 w-60 pointer-events-auto relative overflow-hidden"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-slate-900 text-white p-4 rounded border border-slate-700 shadow-2xl w-80 pointer-events-auto"
           >
-            <motion.div 
-              animate={{ opacity: status === 'speaking' ? [0.03, 0.1, 0.03] : 0.03 }}
-              transition={{ duration: 1, repeat: Infinity }}
-              className={`absolute inset-0 ${status === 'speaking' ? 'bg-indigo-600' : 'bg-emerald-500'}`}
-            />
-            <div className="relative z-10 flex flex-col items-center gap-4">
+            <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
               <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${status === 'listening' ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-50'}`} />
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Care Intelligence</span>
+                <div className={`w-2 h-2 rounded-full ${status === 'listening' ? 'bg-emerald-500 animate-pulse' : 'bg-blue-500'}`} />
+                <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Audio Telemetry Link</span>
               </div>
-              
-              <div className="relative h-16 w-16 flex items-center justify-center">
-                <div className={`absolute inset-0 rounded-full blur-2xl opacity-30 ${status === 'speaking' ? 'bg-indigo-600' : 'bg-emerald-400'}`} />
-                <div className={`w-full h-full rounded-full border-4 flex items-center justify-center transition-all duration-300 ${status === 'speaking' ? 'bg-indigo-600 border-indigo-200' : 'bg-emerald-500 border-emerald-100 shadow-xl'}`}>
-                  {status === 'processing' ? (
-                    <svg className="w-8 h-8 text-white animate-spin" fill="none" viewBox="0 0 24 24"><path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path></svg>
-                  ) : (
-                    <SvgIcons.Mic className="w-8 h-8 text-white" />
-                  )}
-                </div>
-              </div>
-
-              <div className="text-center w-full min-h-[40px] flex flex-col justify-center">
-                <p className="text-[11px] font-black text-slate-900 uppercase italic tracking-tight mb-1">
-                  {status === 'speaking' ? 'Clearwater AI' : status === 'listening' ? 'Listening...' : 'Thinking'}
-                </p>
-                {transcript && (
-                  <p className="text-[10px] font-bold text-slate-400 line-clamp-2 leading-tight italic px-2">
-                    "{transcript}"
-                  </p>
-                )}
-              </div>
+              <span className="text-[8px] font-bold text-slate-500 uppercase">Encrpyted Channel</span>
+            </div>
+            
+            <div className="space-y-4">
+               <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-sm flex items-center justify-center border ${status === 'speaking' ? 'bg-blue-900 border-blue-700' : 'bg-slate-800 border-slate-700'}`}>
+                    {status === 'processing' ? (
+                       <div className="w-4 h-4 border-2 border-white/20 border-t-white animate-spin rounded-full" />
+                    ) : (
+                      <SvgIcons.Mic className="w-4 h-4 text-white" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-500 uppercase leading-none mb-1 tracking-tighter">System Interface</p>
+                    <p className="text-xs font-bold uppercase tracking-widest">{status}</p>
+                  </div>
+               </div>
+               
+               {transcript && (
+                 <div className="p-3 bg-slate-800 rounded text-[11px] text-slate-300 font-medium italic border-l-2 border-blue-500">
+                   "{transcript}"
+                 </div>
+               )}
             </div>
           </motion.div>
         )}
@@ -251,18 +227,17 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
 
       <button
         onClick={() => (isActive ? deactivate() : connect())}
-        className={`w-16 h-16 md:w-20 md:h-20 rounded-[32px] flex items-center justify-center shadow-2xl transition-all active:scale-90 pointer-events-auto border-4 border-white ${isActive ? 'bg-rose-500 rotate-45' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+        className={`w-12 h-12 rounded border shadow-lg transition-all active:scale-95 pointer-events-auto flex items-center justify-center ${isActive ? 'bg-rose-700 text-white border-rose-800' : 'bg-white text-slate-900 border-slate-300 hover:bg-slate-50'}`}
+        aria-label="Toggle Clinical Audio Interface"
       >
         <AnimatePresence mode="wait">
           {!isActive ? (
-            <motion.div key="mic" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-              <SvgIcons.Mic className="w-8 h-8 md:w-10 md:h-10 text-white" />
+            <motion.div key="mic" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <SvgIcons.Mic className="w-5 h-5" />
             </motion.div>
           ) : (
-            <motion.div key="close" initial={{ scale: 0, rotate: -45 }} animate={{ scale: 1, rotate: 0 }} exit={{ scale: 0 }}>
-              <svg className="w-8 h-8 md:w-10 md:h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M6 18L18 6M6 6l12 12"></path>
-              </svg>
+            <motion.div key="close" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
             </motion.div>
           )}
         </AnimatePresence>
