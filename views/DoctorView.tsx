@@ -41,7 +41,7 @@ const DoctorView: React.FC<DoctorViewProps> = ({ user }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
         {/* Verification Queue */}
-        <section className="lg:col-span-7 space-y-6">
+        <section className="lg:col-span-8 space-y-6">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-1.5 h-6 bg-slate-900" />
             <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Encounter Verification Queue</h2>
@@ -80,19 +80,19 @@ const DoctorView: React.FC<DoctorViewProps> = ({ user }) => {
           </div>
         </section>
 
-        {/* Clinical Notes Feed */}
-        <section className="lg:col-span-5 space-y-6">
+        {/* Clinical Note Dispatcher */}
+        <section className="lg:col-span-4 space-y-6">
           <div className="flex items-center gap-2 mb-4">
             <div className="w-1.5 h-6 bg-amber-500" />
-            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Beacon Clinical Liaison</h2>
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Dispatch Notes</h2>
           </div>
           <div className="medical-card p-8 space-y-6 border-l-4 border-l-amber-500">
             <div className="space-y-3">
-               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Record Note for Dispatch</label>
+               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Clinical Observation</label>
                <textarea 
                  value={message}
                  onChange={(e) => setMessage(e.target.value)}
-                 placeholder="Clinical observations, Beacon referral notes, or coordination requirements..." 
+                 placeholder="Enter observations for coordination team..." 
                  className="w-full h-40 p-4 bg-slate-50 rounded border border-slate-200 focus:border-amber-500 outline-none text-sm text-slate-700 placeholder:text-slate-300 shadow-inner transition-all font-medium"
                />
             </div>

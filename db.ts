@@ -13,8 +13,20 @@ interface ExtendedAppState extends AppState {
 }
 
 /**
- * Robust local time formatter to ensure UI matches user expectations.
- * Always formats the ISO string back into the user's local timezone.
+ * Helper to generate an ISO string for a specific time relative to today.
+ * @param daysOffset Number of days from today (0 for today, 1 for tomorrow)
+ * @param timeStr "HH:mm" format
+ */
+const getRelativeISO = (daysOffset: number, timeStr: string): string => {
+  const d = new Date();
+  d.setDate(d.getDate() + daysOffset);
+  const [h, m] = timeStr.split(':');
+  d.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+  return d.toISOString();
+};
+
+/**
+ * Formats time for high-visibility UI (e.g. "1:00 PM")
  */
 export const formatClinicalTime = (isoString: string) => {
   if (!isoString) return "TBD";
@@ -29,26 +41,51 @@ export const formatClinicalTime = (isoString: string) => {
 };
 
 /**
- * Handles incoming date/time strings.
- * AI often sends ISO strings with 'Z' but intends them as local time, or sends HH:mm.
- * This function forces the interpretation to be the patient's local time to prevent 
- * timezone shifts (e.g., 4 PM becoming 11 AM).
+ * Formats the full date label (e.g. "Sun, February 1")
+ */
+export const formatClinicalDate = (isoString: string) => {
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return "TBD";
+  
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  
+  const diffTime = targetDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return `Today, ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
+  if (diffDays === 1) return `Tomorrow, ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
+  
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'long', day: 'numeric' });
+};
+
+/**
+ * Standardizes date strings. 
+ * Improved to detect if the input is a full ISO or just a time.
  */
 const ensureValidDate = (dateInput: any): string => {
   if (!dateInput) return new Date().toISOString();
+  let str = String(dateInput);
 
-  // If HH:mm format
-  if (typeof dateInput === 'string' && /^\d{1,2}:\d{2}(:\d{2})?$/.test(dateInput)) {
-    const [h, m] = dateInput.split(':');
+  // 1. If it's a full ISO string (contains T and -), use it directly but strip 'Z' to treat as local
+  if (str.includes('T') && str.includes('-')) {
+    if (str.endsWith('Z')) str = str.slice(0, -1);
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+
+  // 2. Handle simple HH:mm (e.g. "13:00") - Default to TODAY
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(str)) {
+    const [h, m] = str.split(':');
     const d = new Date();
     d.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
     return d.toISOString();
   }
 
-  const d = new Date(dateInput);
-  if (isNaN(d.getTime())) return new Date().toISOString();
-
-  return d.toISOString();
+  // 3. Last resort fallback
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? new Date().toISOString() : fallback.toISOString();
 };
 
 const INITIAL_DATA: ExtendedAppState = {
@@ -64,19 +101,41 @@ const INITIAL_DATA: ExtendedAppState = {
     { id: 'p3', name: 'Evelyn Reed', dob: '1945-02-15', phone: '555-0106', address: '78 Pine St', riskLevel: RiskLevel.LOW, notes: 'Bilateral cataracts.' },
   ],
   appointments: [
-    { id: 'a1', patientId: 'p1', patientName: 'Margaret Smith', datetime: ensureValidDate('2025-05-20T09:00:00Z'), location: 'Beacon Medical Center', status: ApptStatus.SCHEDULED, provider: 'Dr. Heart' },
-    { id: 'a2', patientId: 'p2', patientName: 'Arthur Penhaligon', datetime: ensureValidDate('2025-05-18T14:30:00Z'), location: 'Beacon Medical Center', status: ApptStatus.CONFIRMED, provider: 'Dr. Diabetes' },
-    { id: 'a3', patientId: 'p1', patientName: 'Margaret Smith', datetime: ensureValidDate('2025-05-15T10:00:00Z'), location: 'Beacon Medical Center', status: ApptStatus.MISSED, provider: 'PT Jane' },
+    { 
+      id: 'a1', 
+      patientId: 'p1', 
+      patientName: 'Margaret Smith', 
+      datetime: getRelativeISO(0, '09:00'), // Today
+      location: 'Beacon Medical Center', 
+      status: ApptStatus.SCHEDULED, 
+      provider: 'Dr. Heart' 
+    },
+    { 
+      id: 'a2', 
+      patientId: 'p2', 
+      patientName: 'Arthur Penhaligon', 
+      datetime: getRelativeISO(1, '14:30'), // Tomorrow
+      location: 'Beacon Medical Center', 
+      status: ApptStatus.CONFIRMED, 
+      provider: 'Dr. Diabetes' 
+    },
   ],
   transportRequests: [
-    { id: 't1', patientId: 'p1', appointmentId: 'a1', pickupLocation: '123 Ridge Rd', destination: 'Beacon Medical Center', scheduledTime: ensureValidDate('2025-05-20T08:15:00Z'), status: TransportStatus.REQUESTED },
-    { id: 't2', patientId: 'p2', appointmentId: 'a2', pickupLocation: '45 Oak Ave', destination: 'Beacon Medical Center', scheduledTime: ensureValidDate('2025-05-18T13:45:00Z'), status: TransportStatus.ASSIGNED, driverId: 'u3', driverName: 'Bill Driver' },
+    { 
+      id: 't1', 
+      patientId: 'p1', 
+      appointmentId: 'a1', 
+      pickupLocation: '123 Ridge Rd', 
+      destination: 'Beacon Medical Center', 
+      scheduledTime: getRelativeISO(0, '08:15'), 
+      status: TransportStatus.REQUESTED 
+    },
   ],
   referrals: [
-    { id: 'r1', patientId: 'p1', specialty: 'Cardiology', provider: 'Beacon Medical Center', urgency: RiskLevel.HIGH, status: ReferralStatus.SENT, requestedDate: '2025-05-10' },
+    { id: 'r1', patientId: 'p1', specialty: 'Cardiology', provider: 'Beacon Medical Center', urgency: RiskLevel.HIGH, status: ReferralStatus.SENT, requestedDate: new Date().toISOString().split('T')[0] },
   ],
   tasks: [
-    { id: 'k1', patientId: 'p1', title: 'Follow-up on missed PT appointment', priority: TaskPriority.URGENT, status: 'PENDING', dueDate: '2025-05-16' },
+    { id: 'k1', patientId: 'p1', title: 'Follow-up on missed PT appointment', priority: TaskPriority.URGENT, status: 'PENDING', dueDate: new Date().toISOString().split('T')[0] },
   ],
   messages: [],
   notifications: [
@@ -94,7 +153,8 @@ class Store {
   private listeners: (() => void)[] = [];
 
   constructor() {
-    const saved = localStorage.getItem('beacon_state_v4');
+    // V10 bump to fix "Feb 1st" vs "Jan 31st" sticky logic
+    const saved = localStorage.getItem('beacon_state_v10');
     if (saved) {
       try {
         this.data = JSON.parse(saved);
@@ -108,7 +168,7 @@ class Store {
   
   setState(newData: Partial<ExtendedAppState>) {
     this.data = { ...this.data, ...newData };
-    localStorage.setItem('beacon_state_v4', JSON.stringify(this.data));
+    localStorage.setItem('beacon_state_v10', JSON.stringify(this.data));
     this.notify();
   }
 
@@ -164,8 +224,14 @@ class Store {
       provider
     };
     
-    this.setState({ appointments: [newAppt, ...this.data.appointments.filter(a => a.patientId !== patient.id || a.status !== ApptStatus.SCHEDULED)] });
-    this.addNotification(`Scheduled: Beacon Medical Center visit for ${patient.name}.`);
+    // Clear old scheduled/confirmed appointments for this patient before adding new one
+    this.setState({ 
+      appointments: [newAppt, ...this.data.appointments.filter(a => !(a.patientId === patient.id && (a.status === ApptStatus.SCHEDULED || a.status === ApptStatus.CONFIRMED)))] 
+    });
+    
+    const timeDisplay = formatClinicalTime(validDatetime);
+    const dateDisplay = formatClinicalDate(validDatetime);
+    this.addNotification(`Scheduled: Visit for ${patient.name} on ${dateDisplay} at ${timeDisplay}.`);
     return newAppt;
   }
 
@@ -188,7 +254,7 @@ class Store {
     this.setState({ 
       appointments: this.data.appointments.map(a => a.id === id ? { ...a, status: ApptStatus.COMPLETED } : a) 
     });
-    this.addNotification("Clinical encounter completed and recorded in Beacon.");
+    this.addNotification("Clinical encounter completed.");
   }
 
   updateAppointmentTime(patientName: string, newDatetime: string) {
@@ -196,11 +262,12 @@ class Store {
     if (!patient) return false;
     const validTime = ensureValidDate(newDatetime);
     const appts = this.data.appointments.map(a => 
-      (a.patientId === patient.id && a.status === ApptStatus.SCHEDULED)
+      (a.patientId === patient.id && (a.status === ApptStatus.SCHEDULED || a.status === ApptStatus.CONFIRMED))
       ? { ...a, datetime: validTime }
       : a
     );
     this.setState({ appointments: appts });
+    this.addNotification(`Updated: ${patient.name}'s visit time changed to ${formatClinicalTime(validTime)}.`);
     return true;
   }
 
@@ -253,7 +320,7 @@ class Store {
         status: TransportStatus.REQUESTED
       };
       this.setState({ transportRequests: [newRide, ...this.data.transportRequests] });
-      this.addNotification(`NEW PICKUP REQUEST: ${patient.name} needs a ride to Beacon.`);
+      this.addNotification(`Pickup request for ${patient.name} created.`);
     } else if (action === 'ASSIGN' && driverName) {
       const driver = this.data.users.find(u => u.name.toLowerCase().includes(driverName.toLowerCase()));
       const ride = this.data.transportRequests.find(r => r.patientId === patient.id && r.status === TransportStatus.REQUESTED);
@@ -272,7 +339,7 @@ class Store {
         r.id === rideId ? { ...r, driverId, driverName, status: TransportStatus.ASSIGNED } : r
       )
     });
-    this.addNotification(`Ride ${rideId} claimed by ${driverName} via Beacon Fleet.`);
+    this.addNotification(`Ride claimed by ${driverName}.`);
   }
 
   requestRide(patientId: string, appointmentId?: string) {
@@ -291,7 +358,7 @@ class Store {
       status: TransportStatus.REQUESTED
     };
     this.setState({ transportRequests: [newRide, ...this.data.transportRequests] });
-    this.addNotification(`Beacon Pickup requested for ${patient.name}.`);
+    this.addNotification(`Pickup requested for ${patient.name}.`);
     return true;
   }
 
@@ -311,7 +378,7 @@ class Store {
       return a;
     });
     this.setState({ appointments: appts });
-    this.addNotification("Rescheduled via Beacon for one week from original date.");
+    this.addNotification("Rescheduled for one week from original date.");
   }
 
   requestMedicalHelp(patientId: string) {
@@ -322,7 +389,7 @@ class Store {
     if (existingSOS) return;
 
     this.setTheme('emergency');
-    this.addNotification(`EMERGENCY SOS: AMBULANCE DISPATCHED TO ${patient.address.toUpperCase()} FOR ${patient.name.toUpperCase()}.`);
+    this.addNotification(`EMERGENCY: DISPATCHING HELP TO ${patient.name.toUpperCase()}.`);
 
     const emergencyRide: TransportRequest = {
       id: `sos-${Date.now()}`,
@@ -348,12 +415,12 @@ class Store {
           r.id === sosRide.id ? { ...r, status: TransportStatus.COMPLETED } : r
         )
       });
-      this.addNotification(`Emergency situation for subject ${patientId} has been resolved.`);
+      this.addNotification(`Emergency resolved for patient.`);
     }
   }
 
   callDriver(rideId: string) {
-    this.addNotification(`Connecting to Beacon Fleet for ride ${rideId}...`);
+    this.addNotification(`Connecting to operator for ride ${rideId}...`);
   }
 
   sendMessage(senderId: string, text: string, receiverId: string) {
