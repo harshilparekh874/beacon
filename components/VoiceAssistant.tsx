@@ -68,7 +68,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
 
   const stopAllAudio = () => {
     sourcesRef.current.forEach(s => {
-      try { s.stop(); } catch (e) {}
+      try { s.stop(); } catch (e) { }
     });
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
@@ -100,11 +100,11 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
 
       const outCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
       const inCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      
+
       // Critical: Resume contexts immediately on user gesture
       await inCtx.resume();
       await outCtx.resume();
-      
+
       outCtxRef.current = outCtx;
       inCtxRef.current = inCtx;
 
@@ -114,18 +114,18 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
       const isDoctorActive = store.getState().systemConfig.virtualDoctorActive;
       const instruction = SYSTEM_INSTRUCTION + (isDoctorActive ? "\n\nACTING PERSONA: Virtual Medical Doctor. Be clinical and diagnostic." : "\n\nACTING PERSONA: Care Coordination Assistant. Be brief and logistical.");
 
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || process.env.GEMINI_API_KEY });
+      console.log('GoogleGenAI client created with key starting with:', (process.env.API_KEY || process.env.GEMINI_API_KEY)?.substring(0, 5));
+
       const sessionPromise = ai.live.connect({
-        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+        model: 'gemini-2.0-flash',
         config: {
           responseModalities: [Modality.AUDIO],
           tools: [{ functionDeclarations: CARE_ASSISTANT_TOOLS.functionDeclarations }],
-          systemInstruction: instruction + ` SESSION_ROLE: ${role}.`,
+          systemInstruction: SYSTEM_INSTRUCTION + ` Current role: ${role}.`,
           inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          thinkingConfig: { thinkingBudget: 0 },
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: isDoctorActive ? 'Fenrir' : 'Zephyr' } },
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } },
           },
         },
         callbacks: {
@@ -181,7 +181,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
               for (const fc of message.toolCall.functionCalls) {
                 const result = onActionRef.current({ functionName: fc.name, ...fc.args });
                 sessionPromise.then((session) => {
-                  session.sendToolResponse({ 
+                  session.sendToolResponse({
                     functionResponses: {
                       id: fc.id,
                       name: fc.name,
@@ -210,7 +210,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     setIsActive(false);
     setStatus('idle');
     stopAllAudio();
-    
+
     streamRef.current?.getTracks().forEach(t => t.stop());
     streamRef.current = null;
 
@@ -218,7 +218,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     if (inCtx) {
       inCtxRef.current = null;
       if (inCtx.state !== 'closed') {
-        inCtx.close().catch(() => {});
+        inCtx.close().catch(() => { });
       }
     }
 
@@ -226,12 +226,12 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     if (outCtx) {
       outCtxRef.current = null;
       if (outCtx.state !== 'closed') {
-        outCtx.close().catch(() => {});
+        outCtx.close().catch(() => { });
       }
     }
 
     sessionPromiseRef.current?.then(s => {
-      try { s.close(); } catch (e) {}
+      try { s.close(); } catch (e) { }
     });
     sessionPromiseRef.current = null;
   };
@@ -242,7 +242,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
     <div className="fixed bottom-4 right-4 z-[100] pointer-events-none flex flex-col items-end gap-2">
       <AnimatePresence>
         {isActive && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
@@ -257,33 +257,33 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onAction, role }) => {
               </div>
               <span className="text-[8px] font-bold opacity-30 uppercase">Live Session</span>
             </div>
-            
-            <div className="space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
-               <div className="flex items-center gap-3 sticky top-0 bg-inherit py-1 z-10">
-                  <div className={`w-8 h-8 rounded flex items-center justify-center border transition-colors ${status === 'speaking' ? 'bg-blue-600 border-blue-400' : 'bg-white/5 border-white/10'}`}>
-                    {status === 'processing' ? (
-                       <div className="w-3 h-3 border-2 border-white/20 border-t-white animate-spin rounded-full" />
-                    ) : (
-                      <SvgIcons.Mic className="w-3 h-3 text-white" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold opacity-40 uppercase leading-none tracking-tighter">AI Status</p>
-                    <p className="text-[10px] font-bold uppercase tracking-widest">{status}</p>
-                  </div>
-               </div>
-               
-               {userTranscript && (
-                 <div className="p-2 rounded bg-white/5 border border-white/10 text-[10px] text-blue-300 font-medium italic">
-                   " {userTranscript} "
-                 </div>
-               )}
 
-               {aiTranscript && (
-                 <div className={`p-2 rounded text-[10px] font-medium border-l-2 transition-all ${isMD ? 'bg-blue-800 border-white text-white' : 'bg-slate-800 border-blue-500 text-slate-200'}`}>
-                   {aiTranscript}
-                 </div>
-               )}
+            <div className="space-y-4 max-h-60 overflow-y-auto custom-scrollbar">
+              <div className="flex items-center gap-3 sticky top-0 bg-inherit py-1 z-10">
+                <div className={`w-8 h-8 rounded flex items-center justify-center border transition-colors ${status === 'speaking' ? 'bg-blue-600 border-blue-400' : 'bg-white/5 border-white/10'}`}>
+                  {status === 'processing' ? (
+                    <div className="w-3 h-3 border-2 border-white/20 border-t-white animate-spin rounded-full" />
+                  ) : (
+                    <SvgIcons.Mic className="w-3 h-3 text-white" />
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold opacity-40 uppercase leading-none tracking-tighter">AI Status</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest">{status}</p>
+                </div>
+              </div>
+
+              {userTranscript && (
+                <div className="p-2 rounded bg-white/5 border border-white/10 text-[10px] text-blue-300 font-medium italic">
+                  " {userTranscript} "
+                </div>
+              )}
+
+              {aiTranscript && (
+                <div className={`p-2 rounded text-[10px] font-medium border-l-2 transition-all ${isMD ? 'bg-blue-800 border-white text-white' : 'bg-slate-800 border-blue-500 text-slate-200'}`}>
+                  {aiTranscript}
+                </div>
+              )}
             </div>
           </motion.div>
         )}
